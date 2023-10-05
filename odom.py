@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 import rospy
-from erp42_driver.msg import erpStatusMsg
+from erp_driver.msg import erpStatusMsg
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Quaternion, Twist
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 import math
-
+from sensor_msgs.msg import Imu
 rospy.init_node('odometry_publisher')
 
 # Constants for encoder and wheel properties
@@ -16,7 +16,6 @@ WHEEL_BASE = 0.97  # Wheelbase (distance between two wheels) in meters
 
 # Initialize variables
 prev_encoder_left = 0
-prev_encoder_right = 0
 prev_time = rospy.Time.now()
 
 x = 0.0
@@ -26,19 +25,16 @@ theta = 0.0
 odom_pub = rospy.Publisher('wheel/odom', Odometry, queue_size=10)
 
 def encoder_callback(msg):
-    global prev_encoder_left, prev_encoder_right, prev_time, x, y, theta
-
-    # Extract encoder data
-    encoder_left = msg.encoder_left
-    encoder_right = msg.encoder_right
+    global prev_encoder_left, prev_time, x, y, theta
+    
+    # Extract encoder data (assuming only left encoder is used)
+    encoder_left = msg.encoder
 
     # Calculate delta encoder values
     delta_left = encoder_left - prev_encoder_left
-    delta_right = encoder_right - prev_encoder_right
 
-    # Update previous encoder values
+    # Update previous encoder value
     prev_encoder_left = encoder_left
-    prev_encoder_right = encoder_right
 
     # Calculate time difference
     current_time = rospy.Time.now()
@@ -46,24 +42,12 @@ def encoder_callback(msg):
     prev_time = current_time
 
     # Calculate linear and angular velocities
-    delta_s = (delta_left + delta_right) * 0.5 * (2 * math.pi * WHEEL_RADIUS) / TICKS_PER_REVOLUTION
-    delta_theta = (delta_right - delta_left) * (2 * math.pi * WHEEL_RADIUS) / (TICKS_PER_REVOLUTION * WHEEL_BASE)
-
+    delta_s = delta_left * (2 * math.pi * WHEEL_RADIUS) / TICKS_PER_REVOLUTION
     linear_x = delta_s / dt
-    angular_z = delta_theta / dt
 
     # Integrate linear velocity to update position
     x += linear_x * math.cos(theta) * dt
     y += linear_x * math.sin(theta) * dt
-
-    # Integrate angular velocity to update orientation
-    theta += angular_z * dt
-
-    # Convert theta to the range -pi to pi
-    while theta > math.pi:
-        theta -= 2.0 * math.pi
-    while theta < -math.pi:
-        theta += 2.0 * math.pi
 
     # Create Odometry message
     odom = Odometry()
@@ -77,8 +61,8 @@ def encoder_callback(msg):
     quaternion = quaternion_from_euler(0, 0, theta)
     odom.pose.pose.orientation = Quaternion(*quaternion)
 
-    # Set linear and angular velocities
-    odom.twist.twist = Twist(linear=linear_x, angular=angular_z)
+    # Set linear velocity (angular velocity is 0 since we're not using right encoder)
+    odom.twist.twist = Twist(linear=linear_x, angular=0.0)
 
     # Publish the Odometry message
     odom_pub.publish(odom)
