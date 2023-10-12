@@ -17,7 +17,6 @@ class Yolo_drive:
 
         self.bridge = CvBridge()  
         self.current_speed = 30
-        self.break_flag = False  # '6' 검출 시 break 여부
 
         # YOLOv5 load
         self.model = torch.hub.load('ultralytics/yolov5', 'custom', path='best.pt 있는 경로')
@@ -25,34 +24,35 @@ class Yolo_drive:
                             '5', '6', '7', '8', '9', 'Green', 'red', 'yellow'] 
 
     def image_callback(self, image_msg):
-        try:
-            cv_image = self.bridge.compressed_imgmsg_to_cv2(image_msg, "bgr8")
-        except CvBridgeError as e:
-            print(e)
-
-        detections = self.model(cv_image)  # YOLOv5 검출
-
+        cv_image = self.bridge.imgmsg_to_cv2(image_msg, "bgr8")
+        detections = self.yolo.detect(cv_image)
+        
         for detection in detections:
-            for obj in detection:
-                label = self.class_names[int(obj[-1])]
-                if label == '5':
-                    self.current_speed = 30
-                    self.publish_speed()
-                elif label == '6':
-                    self.break_flag = True
-                elif label == '7':
-                    self.current_speed = 30
-                    self.publish_speed()
-                elif label == 'Green':
-                    self.accelerate_speed(55, 5)
-                elif label == 'Red':
-                    self.break_flag = True
+            label = detection['label']
+            if label == '5':
+                self.current_speed = 30
+                self.publish_speed()
+            elif label == '6':
+                self.increase_brake()
+            elif label == '7':
+                self.current_speed = 30
+                self.publish_speed()
+            elif label == 'Green':
+                self.accelerate_speed(55, 5)
+            elif label == 'Red':
+                self.increase_brake()
+
+    def increase_brake(self):
+        # Increase the brake value from 1 to 33 over 1.5 seconds
+        for brake_value in range(1, 34):
+            self.brake = brake_value
+            self.publish_speed()
+            rospy.sleep(1.5 / 33)
 
     def publish_speed(self):
         speed_msg = erpCmdMsg()
         speed_msg.speed = self.current_speed
-        speed_msg.brake = self.break_flag
-        self.cmd_pub.publish(speed_msg)
+        self.speed_pub.publish(speed_msg)
 
     def accelerate_speed(self, target_speed, duration):
         start_time = rospy.Time.now()
